@@ -1,7 +1,6 @@
 # Ledger interaction script
-
-from ..hwwclient import HardwareWalletClient
-from ..errors import ActionCanceledError, BadArgumentError, DeviceConnectionError, DeviceFailureError, UnavailableActionError
+from  ..hwwclient import HardwareWalletClient
+from ..errors import ActionCanceledError, BadArgumentError, DeviceConnectionError, DeviceFailureError, UnavailableActionError, LockedError
 from .btchip.btchip import *
 from .btchip.btchipUtils import *
 import base64
@@ -14,9 +13,6 @@ from ..serializations import hash256, hash160, ser_uint256, PSBT, CTransaction, 
 import binascii
 import logging
 import re
-
-LEDGER_VENDOR_ID = 0x2c97
-LEDGER_DEVICE_ID = 0x0001
 
 # minimal checking of string keypath
 def check_keypath(key_path):
@@ -33,6 +29,9 @@ def check_keypath(key_path):
     return True
 
 bad_args = [
+    0x63C0, # BTCHIP_SW_INCORRECT_PIN_0_ATTEMPTS_REMAINING
+    0x63C1, # BTCHIP_SW_INCORRECT_PIN_1_ATTEMPTS_REMAINING
+    0x63C2, # BTCHIP_SW_INCORRECT_PIN_2_ATTEMPTS_REMAINING
     0x6700, # BTCHIP_SW_INCORRECT_LENGTH
     0x6A80, # BTCHIP_SW_INCORRECT_DATA
     0x6B00, # BTCHIP_SW_INCORRECT_P1_P2
@@ -40,7 +39,6 @@ bad_args = [
 ]
 
 cancels = [
-    0x6982, # BTCHIP_SW_SECURITY_STATUS_NOT_SATISFIED
     0x6985, # BTCHIP_SW_CONDITIONS_OF_USE_NOT_SATISFIED
 ]
 
@@ -57,6 +55,8 @@ def ledger_exception(f):
                 raise DeviceFailureError(e.message)
             elif e.sw == 0x6FAA: # BTCHIP_SW_HALTED
                 raise DeviceConnectionError('Device is asleep')
+            elif e.sw == 0x6982: # BTCHIP_SW_LOCKED_OR_INVALID_ACCESS_RIGHT
+                raise LockedError('Locked or invalid access right')
             elif e.sw in cancels:
                 raise ActionCanceledError('{} canceled'.format(f.__name__))
             else:
@@ -332,11 +332,21 @@ class LedgerClient(HardwareWalletClient):
 
     # Send pin
     def send_pin(self, pin):
-        raise UnavailableActionError('The Ledger Nano S does not need a PIN sent from the host')
+        self.app.verifyPin(pin)
+        #raise UnavailableActionError('The Ledger Nano S does not need a PIN sent from the host')
+
+def enumerate_devices():
+    devices = [
+        {"vendorId": 0x2c97, "deviceId": 0x0001, "model": "nano s"}, # HdiNanoS
+        {"vendorId": 0x2581, "deviceId": 0x3b7c, "model": "nano"},   # Hdi
+    ]
+    for d in devices:
+        for e in hid.enumerate(d["vendorId"], d["deviceId"]):
+            yield e
 
 def enumerate(password=''):
     results = []
-    for d in hid.enumerate(LEDGER_VENDOR_ID, LEDGER_DEVICE_ID):
+    for d in enumerate_devices():
         if ('interface_number' in d and  d['interface_number'] == 0 \
         or ('usage_page' in d and d['usage_page'] == 0xffa0)):
             d_data = {}

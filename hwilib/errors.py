@@ -16,6 +16,7 @@ DEVICE_NOT_READY = -12
 UNKNOWN_ERROR = -13
 ACTION_CANCELED = -14
 DEVICE_BUSY = -15
+DEVICE_LOCKED = -16
 
 # Exceptions
 class HWWError(Exception):
@@ -84,3 +85,7 @@ class DeviceConnectionError(HWWError):
 class DeviceBusyError(HWWError):
     def __init__(self, msg):
         HWWError.__init__(self, msg, DEVICE_BUSY)
+
+class LockedError(HWWError):
+    def __init__(self, msg):
+        HWWError.__init__(self, msg, DEVICE_LOCKED)
